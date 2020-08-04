@@ -1,0 +1,425 @@
+before_script: 
+  - |
+    ## Ignore Powershell outputs / warnings from objects that exist, or are not found
+    $ErrorActionPreference = 'SilentlyContinue'
+
+  - |
+    ## Defining dynamic variables used in this deployment, via Parsed Google Forms JSON Payload, using Powershell
+    echo $env:fields 
+    $payload = "$env:fields" | ConvertFrom-Json
+    $payload | Out-File -FilePath .\deploymentVars.ps1
+    $env = $payload | where { $_.Name -eq "Environment" } | Select -ExpandProperty value 
+    $awsAccountNumber = $payload | where { $_.Name -eq "AwsAccountNumber" } | Select -ExpandProperty value
+    $region = $payload | where { $_.Name -eq "AwsRegion" } | Select -ExpandProperty value
+    $version = $payload | where { $_.Name -eq "ReleaseVersion" } | Select -ExpandProperty value    
+    $notifyEmail = $payload | where { $_.Name -eq "NotificationEmail" } | Select -ExpandProperty value    
+    $buildType = $payload | where { $_.Name -eq "BuildType" } | Select -ExpandProperty value 
+    $build = $buildType + "BuildConfig.csv" 
+
+  - |
+    ## Defining static variables used in deployment, using Powershell
+    $sshFileName = "id_rsa"
+    $sshFilePath = "$env:USERPROFILE/.ssh/$sshFileName"
+    $bucketName = "account-$($awsAccountNumber)-terraform-cloud-tfstate-files"
+    $mgmtAccountRegion = "us-east-1"
+    $awsProfile = "cssDevAssumeRole" 
+    $smCredsProfile = "cssDevSecretsManager" #css" + $envType + "AssumeRole
+    $tfTokenSecretName = "css-core-tf-cloud-token"
+    $gitlabTokenSecretName = "css-core-gitlab-pat-token"
+    $gitlabOAuthTokenSecretName ="account-$($awsAccountNumber)-gitlab-oauth-token"
+    $tfOrgEmail = "Vazzanag@fan.com"
+
+  - |
+    ## Static 'deployments' repository variables used for Git Clone, Pull, Push operations
+    $localDir                  = "C:\Gitlab-Runner" 
+    $gitURL                    = "git@gitlab.com:aws_terraform1/terraform_cloud.git"
+    $gitDir                    = ($gitURL -split '/')[-1] 
+    $gitDir                    = $gitDir.Replace(".git","") # Replaces '.git' with a blank entry ""
+    $gitCloneDir               = Join-Path $localDir $gitDir
+    $newDeploymentDir = Join-Path $gitCloneDir "/css-customers/account-$($awsAccountNumber)/"
+
+  - |
+    ## Writes above variables to $hash table, and output "variables","values" to .csv file, to capture deployment parameters
+    $hash = @{}
+    $hash.Add('$env',$($env))
+    $hash.Add('$awsAccountNumber',$($awsAccountNumber))
+    $hash.Add('$region',$($region))
+    $hash.Add('$version',$($version))
+    $hash.Add('$notifyEmail',$($notifyEmail))
+    $hash.Add('$build',$($build))
+    $hash.Add('$awsProfile',$($awsProfile))
+    $hash.Add('$sshFileName',$($sshFileName))
+    $hash.Add('$sshFilePath',$($sshFilePath))
+    $hash.Add('$bucketName',$($bucketName))
+    $hash.Add('$mgmtAccountRegion',$($mgmtAccountRegion))
+    $hash.Add('$awsProfile',$($awsProfile))
+    $hash.Add('$smCredsProfile',$($smCredsProfile))
+    $hash.Add('$tfTokenSecretName',$($tfTokenSecretName))
+    $hash.Add('$gitlabTokenSecretName',$($gitlabTokenSecretName))
+    $hash.Add('$tfTokenSecretName',$($tfTokenSecretName))
+    $hash.Add('$gitlabTokenSecretName',$($gitlabTokenSecretName))
+    $hash.Add('$gitlabOAuthTokenSecretName',$($gitlabOAuthTokenSecretName))
+    $hash.Add('$tfOrgEmail',$($tfOrgEmail))
+    $hash
+
+  - |
+    ## Writes the variable hashtable to 'deploymentVars.csv', to capture parameters used in this deployment, via the submitted 'GoogleForm'
+    cd "$CI_PROJECT_DIR"
+    $hash.GetEnumerator() | 
+    
+    # Renames the hashtable Key and Value Column Headers, to "Variable and Value"
+    Select-Object -Property @{N='Variable';E={$_.Key}},
+    @{N='Value';E={$_.Value}} | Sort-Object Variable | Export-Csv -NoTypeInformation -Path .\deploymentVars.csv 
+
+    # Clears out $hash table
+    # $hash.Clear()
+    
+  - |
+    ## Retrieves the AWS Secrets Manager Secrets used through out the deployment
+    # Authenticates with AWS via credentials Profile that have rights to reach AWS Secrets Manager
+    Set-DefaultAWSRegion $mgmtAccountRegion
+    Set-AWSCredential -ProfileName $smCredsProfile
+
+  - |
+    ## Retrieves Terraform Cloud Service Account Token, Gitlab Service Account PAT Token, and Gitlab OAuth Token from AWS Secrets Manager, to be used within this deployment
+    $tfTokenSecretValue = (Get-SECSecretValue -SecretId $tfTokenSecretName).SecretString
+    $gitlabTokenSecretValue = (Get-SECSecretValue -SecretId $gitlabTokenSecretName).SecretString
+    $gitlabOAuthTokenSecretValue = (Get-SECSecretValue -SecretId $gitlabOAuthTokenSecretName).SecretString
+
+    ## Run script to create SSH Keys used for Gitlab Project Deploy Keys
+    # cd "$CI_PROJECT_DIR/deployment-template/_envPrep"
+    # .\createSSH.ps1 | Out-Null
+
+  - |
+    ## Map Variable to determine what branch to 'pull' code from, for deployment, from "deployment_code" Repository
+    if ($version -eq "Latest_Release"){
+      $pullBranch = "master"
+    }
+    else {
+      $pullBranch = "$($version)" #Release_$($version) #Develop
+    }
+
+  - |
+    ## Map Variable to determine what branch to 'push' deployment files to, in "deployments" (Customer) repo
+    if ($env -eq "production"){
+      $pushBranch = "master"
+    }
+    else {
+      $pushBranch = "dev/tst"
+    }
+
+stages:
+  - .pre
+  - prep
+  - deploy
+  - .post
+  
+git_operations:
+  stage: .pre
+  tags: 
+  - pipeline
+  script:
+    - |
+      ## Configure Gitlab Runner Instance with Gitlab User info, for Git Push, despite 'Write Access' enabled deploy key     
+      git config --global user.name "${GITLAB_USER_ID}"
+      git config --global user.email "${GITLAB_USER_EMAIL}"
+
+    - |
+      ## Creates a directory to clone the git repository into, if it does not already exist
+      if (test-path $localDir) {
+        Write-Output "Deployment Directory '$localDir' already exists. You are all set to clone the Git Repo"
+      }
+      else {
+        $dir = New-Item -ItemType Directory -Path $localDir -Force
+        Write-Output "Directory '$($dir.PSPath)' has been created to house this new Terraform deployment"
+      }
+
+    - |
+      ## Perform a git clone for the 'Terraform_cloud Repo' (Customer Deployments Repo), if git clone has not already been performed for this Repository
+
+      # Enter new 'deployment' directory
+      Set-Location "$localDir" # cd
+      write-host "Entering Directory '$localDir'" -ForegroundColor Green
+
+      if (test-path $gitCloneDir) {
+        Write-Output "Git Clone appears to already have been performed, based on the existing folder structure"
+        Set-Location "$gitCloneDir" # cd
+        $existingBranch = git ls-remote --heads origin $pushBranch
+      }
+        if($existingBranch -ne $null){
+          Write-Host "Git Branch '$pushBranch' already exists. Checking out, and updating branch now" -ForegroundColor Green
+          git checkout $pushBranch
+          git pull deployments $pushBranch
+        }
+      else {
+        # Clones the 'Terraform_cloud Repo' (Customer Deployments Repo), into the new directory '$localDir'
+        Set-Location "$localDir" # cd
+        git clone $gitURL
+        Set-Location "$gitCloneDir" # cd
+        git remote add deployments $gitURL
+        git checkout $pushBranch
+        #git clone --single-branch --branch $pushBranch $gitURL
+      }
+
+      ## Allows time for git operations to complete, prior to copying files/folders to 'deployments' repo
+      Start-sleep 5
+      
+create_tfstate_s3: 
+  stage: prep
+  tags: 
+  - pipeline
+  script:
+    - |
+      ## Creates the S3 Bucket which will house TF State Files from this deployment (Remote Backend)
+      # Perform an assume role, into '$($awsAccountNumber)' to create the s3 bucket which will hold the AWS Account Stamp's Terraform State Files
+
+      # Authenticates with AWS via credentials Profile that have rights to assume role into '$($awsAccountNumber)'
+      Set-DefaultAWSRegion $mgmtAccountRegion
+      Set-AWSCredential -ProfileName $awsProfile
+
+      $Response = (Use-STSRole -RoleArn "arn:aws:iam::$($awsAccountNumber):role/RemoteAdmin" -RoleSessionName RoleSession1).Credentials
+      $Credentials = New-AWSCredentials -AccessKey $Response.AccessKeyId -SecretKey $Response.SecretAccessKey -SessionToken $Response.SessionToken
+    - | 
+      ## Creates the s3 Bucket used to store 'TerraformState' files
+      $bucket = Get-S3Bucket -BucketName $bucketName -Region $($region) -Credential $Credentials
+      if($bucket -ne $null) {
+        Write-Output "An s3 Bucket with the name '$($bucket.BucketName)' already exists. Pick a different unique name"
+      }
+      else {
+        $newBucket = New-S3Bucket -BucketName $bucketName -Region $($region) -Credential $Credentials
+        Write-Output "An s3 Bucket '$($newBucket.BucketName)' has been created in AWS Account '$($awsAccountNumber)' " #, with versioning enabled"
+      }
+
+deploy_envPrep:
+  stage: prep
+  only:
+    changes: 
+    - /deployment-template/_envPrep/**/*
+  tags: 
+    - pipeline
+  script:
+    - |
+      ### 1) Enter '_envPrep' Directory:
+      cd "$CI_PROJECT_DIR/deployment-template/_envPrep"
+      write-host "Entering Directory '$CI_PROJECT_DIR/deployment-template/_envPrep'" -ForegroundColor Green
+    - |
+      ## Terraform init, css-mgmt subscription, seperate from Customer subscription being stamped
+      terraform init -backend-config="bucket=account-$($awsAccountNumber)-terraform-cloud-tfstate-files" -backend-config="region=$region" -backend-config="key=account-$($awsAccountNumber)-envprep.terraform.tfstate" -backend-config="role_arn=arn:aws:iam::$($awsAccountNumber):role/RemoteAdmin" -backend-config="profile=$($awsProfile)"
+    - |
+      ## Terraform plan, using the variables created from JSON PAYLOAD (Google Form)
+      terraform plan -input=false -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tfe_org_email=$tfOrgEmail" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "private_sshkey_path=$sshFilePath" -var "public_sshkey_path=$sshFilePath.pub"
+      # -compact-warnings
+    - |
+      ## Terraform apply, using the variables created from JSON PAYLOAD (Google Form)
+      terraform apply -input=false -auto-approve -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tfe_org_email=$tfOrgEmail" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "private_sshkey_path=$sshFilePath" -var "public_sshkey_path=$sshFilePath.pub"
+      # -compact-warnings
+
+error_prevention:
+  stage: deploy
+  tags: 
+    - pipeline
+  when: manual
+  script:
+  - |
+    # This job runs in the event that no jobs are triggered by Only:Changes location. This job is shown as a indication that the pipeline ran, but no real jobs were triggered.
+    exit 0
+
+deploy_rg:
+  stage: deploy
+  only:
+    changes: 
+    - /deployment-template/resourceGroup/**/*
+  tags: 
+    - pipeline
+  script:
+    - |
+      echo "$pushBranch"
+      ### 2) Enter 'resourceGroup/envPrep' Directory:
+      cd "$CI_PROJECT_DIR/deployment-template/resourceGroup/envPrep"
+      write-host "Entering Directory '$CI_PROJECT_DIR/deployment-template/resourceGroup/envPrep'" -ForegroundColor Green
+    - |
+      ## Terraform init, css-mgmt subscription, seperate from Customer subscription being stamped
+      terraform init `
+      -backend-config="bucket=account-$awsAccountNumber-terraform-cloud-tfstate-files" `
+      -backend-config="region=$region" `
+      -backend-config="key=account-$($awsAccountNumber)-envprep-rg.terraform.tfstate" `
+      -backend-config="role_arn=arn:aws:iam::$($awsAccountNumber):role/RemoteAdmin" `
+      -backend-config="profile=$awsProfile" `
+      -backend-config="dynamodb_table=account-$awsAccountNumber-terraform-cloud-tfstate-lock-dynamo"
+    - |
+      ## Terraform plan, using the variables created from JSON PAYLOAD (Google Form)
+      terraform plan -input=false -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "gitlab_app_outh_token=$gitlabOAuthTokenSecretValue" -var "vcs_pipeline_trigger_branch=$pushBranch" -var "build_config_location=$CI_PROJECT_DIR/deployment-template/build_configs/$build" -var "vcs_working_directory=/deployment-template/resourceGroup" -var "git_branch=$version"
+    - |
+      ## Terraform apply, using the variables created from JSON PAYLOAD (Google Form)
+      terraform apply -input=false -auto-approve -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "gitlab_app_outh_token=$gitlabOAuthTokenSecretValue" -var "vcs_pipeline_trigger_branch=$pushBranch" -var "build_config_location=$CI_PROJECT_DIR/deployment-template/build_configs/$build" -var "vcs_working_directory=/deployment-template/resourceGroup" -var "git_branch=$version"
+
+deploy_scp:
+  stage: deploy
+  only:
+    changes: 
+    - /deployment-template/serviceControlPolicies/**/*
+  tags: 
+    - pipeline
+  script:
+    - |
+      echo "$pushBranch"
+      ### 3) Enter 'serviceControlPolicies/envPrep' Directory:
+      cd "$CI_PROJECT_DIR/deployment-template/serviceControlPolicies/envPrep"
+      write-host "Entering Directory '$CI_PROJECT_DIR/deployment-template/serviceControlPolicies/envPrep'" -ForegroundColor Green
+    - |
+      ## Terraform init, css-mgmt subscription, seperate from Customer subscription being stamped
+      terraform init `
+      -backend-config="bucket=account-$awsAccountNumber-terraform-cloud-tfstate-files" `
+      -backend-config="region=$region" `
+      -backend-config="key=account-$($awsAccountNumber)-envprep-scp.terraform.tfstate" `
+      -backend-config="role_arn=arn:aws:iam::$($awsAccountNumber):role/RemoteAdmin" `
+      -backend-config="profile=$awsProfile" `
+      -backend-config="dynamodb_table=account-$awsAccountNumber-terraform-cloud-tfstate-lock-dynamo"
+    - |
+      ## Terraform plan, using the variables created from JSON PAYLOAD (Google Form)
+      terraform plan -input=false -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "gitlab_app_outh_token=$gitlabOAuthTokenSecretValue" -var "vcs_pipeline_trigger_branch=$pushBranch" -var "build_config_location=$CI_PROJECT_DIR/deployment-template/build_configs/$build" -var "vcs_working_directory=/deployment-template/serviceControlPolicies" -var "git_branch=$version"
+    - |
+      ## Terraform apply, using the variables created from JSON PAYLOAD (Google Form)
+      terraform apply -input=false -auto-approve -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "gitlab_app_outh_token=$gitlabOAuthTokenSecretValue" -var "vcs_pipeline_trigger_branch=$pushBranch" -var "build_config_location=$CI_PROJECT_DIR/deployment-template/build_configs/$build" -var "vcs_working_directory=/deployment-template/serviceControlPolicies" -var "git_branch=$version"
+
+deploy_vpc:
+  stage: deploy
+  only:
+    changes: 
+    - /deployment-template/vpcBaseline/**/*
+  tags: 
+    - pipeline
+  script:
+    - |
+      echo "$pushBranch"
+      ### 4) Enter 'vpcBaseline/envPrep' Directory:
+      cd "$CI_PROJECT_DIR/deployment-template/vpcBaseline/envPrep"
+      write-host "Entering Directory '$CI_PROJECT_DIR/deployment-template/vpcBaseline/envPrep'" -ForegroundColor Green
+    - |
+      ## Terraform init, css-mgmt subscription, seperate from Customer subscription being stamped
+      terraform init `
+      -backend-config="bucket=account-$awsAccountNumber-terraform-cloud-tfstate-files" `
+      -backend-config="region=$region" `
+      -backend-config="key=account-$($awsAccountNumber)-envprep-vpc.terraform.tfstate" `
+      -backend-config="role_arn=arn:aws:iam::$($awsAccountNumber):role/RemoteAdmin" `
+      -backend-config="profile=$awsProfile" `
+      -backend-config="dynamodb_table=account-$awsAccountNumber-terraform-cloud-tfstate-lock-dynamo"
+    - |
+      ## Terraform plan, using the variables created from JSON PAYLOAD (Google Form)
+      terraform plan -input=false -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "gitlab_app_outh_token=$gitlabOAuthTokenSecretValue" -var "vcs_pipeline_trigger_branch=$pushBranch" -var "build_config_location=$CI_PROJECT_DIR/deployment-template/build_configs/$build" -var "vcs_working_directory=/deployment-template/vpcBaseline" -var "git_branch=$version"
+    - |
+      ## Terraform apply, using the variables created from JSON PAYLOAD (Google Form)
+      terraform apply -input=false -auto-approve -var "project_ident=account" -var "env_ident=$awsAccountNumber" -var "aws_region=$region" -var "aws_profile=$awsProfile" -var "tf_user_token=$tfTokenSecretValue" -var "gitlab_pat=$gitlabTokenSecretValue" -var "gitlab_app_outh_token=$gitlabOAuthTokenSecretValue" -var "vcs_pipeline_trigger_branch=$pushBranch" -var "build_config_location=$CI_PROJECT_DIR/deployment-template/build_configs/$build" -var "vcs_working_directory=/deployment-template/vpcBaseline" -var "git_branch=$version"
+
+prep_copy_push_deployment_folders:
+  stage: .post
+  tags: 
+  - pipeline
+  when: on_success
+  script:
+    - |  
+      ## Makes a copy of the 'Deployment-Template' Folder, and renames it '$proj-$env', if it does not already exist. 
+      # These files are moved into the 'deployments' (Customer Deployments Repo), and pushed to master branch for "Production" deployments, and "Dev/Tst' Branch for other than "Production" (Dev, tst, other)
+
+    - |
+      if (test-path $newDeploymentDir) {
+        Write-Host "Deployment Directory '$newDeploymentDir' already exists. Pick a new deployment folder name" -ForegroundColor Green
+        exit code 1
+        Write-Host "Job Failed. Deployment folder already exists for 'Account-$($awsAccountNumber)' in 'Deployments' repo. Clear out Gitlab-Runner 'C:\Gitlab-Runner\terraform_cloud\' local representation of 'Account-$($awsAccountNumber)', as it was never pushed to '$($pushBranch)' branch"
+      }
+      else {
+
+      ## Appends below 'ChildPipeline' script block, to 'deployments' repo's Root 'gitlab-ci.yml' file, for this deployment
+      # This file drives the ChildPipelines within each individual deployment folder's 'gitlab-ci-.yml' for that existing account stamp' based on changes made in each folder, via Only: Changes
+      $ymlFile = "$CI_PROJECT_DIR\childPipeline.yml"
+      $rootciFile = "$gitCloneDir\.gitlab-ci.yml"
+      [string[]]$newContent = Get-Content $ymlFile
+      $ciContent = ''
+        foreach ($line in $newContent) { 
+          $ciContent = $ciContent + "`n" + $line 
+        }
+        if ((Get-Content $rootciFile) -match "$awsAccountNumber") {
+          Write-Host "ChildPipeline for Deployment 'account-$($awsAccountNumber)' already exists"
+        }
+        else {
+          Add-Content $rootciFile $ciContent 
+          $insertVar = (Get-Content $rootciFile).replace('$awsAccountNumber', "$($awsAccountNumber)") | Set-Content $rootciFile
+        }
+
+        ## Creates a new 'Gitlab-Ci.yml' file to be used as the deployment pipeline, for the newly stamped subscription, in the 'deployments' (customer repo)
+          
+        # Parses the 'gitlab-ci.yaml', yaml code, removing Pipeline Jobs that are not needed for existing AWS Accounts, and sets the new '$newContent' to '$ciFile'
+        
+        cd $CI_PROJECT_DIR
+        $ciFile = "./" + ".gitlab-ci.yml"
+
+        [string[]]$fileContent = Get-Content $ciFile
+        $content = ''
+          foreach ($line in $fileContent) { 
+              $content = $content + "`n" + $line 
+          }
+        # Converts the Gitlab-ci YAML code to PowerShell Objects, allowing the removal of specific 'gitlab-ci.yml' Jobs
+        # The stripped YML is written to 'gitlab-ci.yml' file, replacing the original content
+        $yaml = (ConvertFrom-Yaml -Yaml $content -Ordered)
+        $remove_job1 = $yaml.Remove("before_script") 
+        $remove_job2 = $yaml.Remove("git_operations") 
+        $remove_job3 = $yaml.Remove("prep_copy_push_deployment_folders")
+        $remove_job4 = $yaml.Remove("create_tfstate_s3") 
+        $newContent  = $yaml | ConvertTo-Yaml
+
+        # Writes all changes in $newContent to 'gitlab-ci.yml' file
+        Set-Content $ciFile $newContent
+
+        # Appends '$scriptContent" from '$fromCSV' to the begining of the new Gitlab-ci.yml '$ciFile'
+        cd "$CI_PROJECT_DIR"
+        $fromCSV = "./" + "fromCSV.ps1"
+        $ciFile = "./" + ".gitlab-ci.yml"
+        $scriptContent = (Get-Content $fromCSV -Raw)
+  
+        # Writes "$scriptContent+$newContent" to "$ciFile", to be copied down to 'deployments' repo along with other files/folders inside 'deployment_code' repo, for use as existing stamped AWS Accounts / Azure Subscriptions 'Gitlab-ci.yml' pipeline file
+        $output = @()
+        # Adds $scriptContent to file, overrights all existing content, to place it at the top of the file
+        $output += $scriptContent
+        # Add previous Gitlab-ci.yml content '$newContent' back, under '$scriptContent'
+        $output += $newContent
+        $output | Out-file $ciFile
+
+        # Replaces 'Deployment_Template' 'Only:Changes' PATH, with new existingStamp 'Only:Changes' PATH, with hard coded awsAccountNumber, due to variables not being processed yet in Only:Changes
+        $replaceTxt  = "css-customers/account-$($awsAccountNumber)/deployment-template"
+        $replacePath = (Get-Content $ciFile).replace('/deployment-template', "$replaceTxt") | Set-Content $ciFile
+        
+        # Replace '$CI_PROJECT_DIR' with '$newDeploymentDir', to accomodate new location of files in 'deployments' repo
+        # This is done to update the 'cd' path for Folder 'deployments' repo pipeline, vs the original stamp pipeline
+        $replaceCIRootDir = (Get-Content $ciFile).replace('$CI_PROJECT_DIR', '$CI_PROJECT_DIR/') | Set-Content $ciFile 
+
+        ## Copys and overwrites '$ciFile' Content again, to resolve errors due to special hidden characters existing in the file, which are unseen
+        # Error: jobs config should contain at least one visible job (invalid YAML)
+        $copyContent = Get-Content $ciFile
+        Set-Content $ciFile $copyContent
+
+        ## Copies the entire 'deployment_code' repo down to the 'deployments' repo (Customer Repo), with the new fabricated 'Gitlab-CI.yml' file, and captured GoogleForm parameter inputs, via the fabricated 'deloymentvars.csv
+        Copy-Item -Path $CI_PROJECT_DIR -Destination $newDeploymentDir -Recurse -Force -Verbose
+
+        # Removes 'modules' folder, and '.git' to prevent sub git repo, from 'deployment_code' repo
+        cd "$newDeploymentDir"
+        Remove-Item -path "$newDeploymentDir/.git" -Recurse -Force
+        Remove-Item -path "$newDeploymentDir/modules" -Recurse -Force
+
+        # Removes the 'deploymentsVar.csv' file created to capture parameters used in this deployment, from local git, to prevent pushing to baseline code repository, "deployment_template" folder.
+        cd $CI_PROJECT_DIR
+        Get-ChildItem -name "deploymentVars.csv" | Remove-Item -Recurse -Force
+
+        # Removes local changes to 'gitlab-ci.yml' file once new gitlab-ci.yml file content is fabricated and copied to 'deployments' repo, to be used by existing stamped account. 
+        # This sets the file back to original content required for this pipeline to run
+        git checkout -- "$CI_PROJECT_DIR/$($ciFile)"
+
+        ## Pushes 'new deployment folder' to 'deployments' repo (Customers repo)
+        # Must add ssh pub key, as deploy key on repository, and check 'Write access allowed', or git commit/push will not work
+        Set-Location "$gitCloneDir"
+        git remote add deployments $gitURL
+        git pull deployments $pushBranch
+        git add --all
+        git commit -m "Adding new deployment '$($newDeploymentDir)' to '$pushBranch'"
+        git push deployments $pushBranch
+        write-host "New deployment folder '$($newDeploymentDir)' has been pushed up to '$pushBranch'"
+      }
