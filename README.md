@@ -1,3 +1,3 @@
-# deployment_code
+This repository hosts the code for Azure Management Groups, Azure Policies, RBAC Roles, and other high level management resources, that lie outside of individual deployments.
 
-This repository hosts the Terraform and Powershell code used for stamping Azure Subscriptions
+Trigger to test tfplan report in merge request GUI

@@ -1,0 +1,85 @@
+# Imports 'deploymentVars.ps1' from repo root, which contains the global variables used in this script
+#. ..\deploymentVars.ps1
+. ..\testDeploymentVars.ps1
+
+# Variables
+$networkWatcherName = "$projectPrefix-$envIdentifier-network-watcher-$regionSuffix"
+$nsgArray = "$projectPrefix-$envIdentifier-ssis-nsg-$regionSuffix","$projectPrefix-$envIdentifier-admin-nsg-$regionSuffix","$projectPrefix-$envIdentifier-tfs-nsg-$regionSuffix","$projectPrefix-$envIdentifier-dns-nsg-$regionSuffix"
+$storageAccountName = $projectPrefix + $saPrefix + "diaglogssa" + $regionSuffix
+$resourceGroupName = "$projectPrefix-$envIdentifier-core-rg-$regionSuffix"
+$workSpaceName = "$projectPrefix-$envIdentifier-la-ws-1-$regionSuffix"
+
+# Login to Azure Resource Management portal
+az login
+#Remove-AzureRmAccount -ErrorAction SilentlyContinue | Out-Null
+$azLogin = (Connect-AzAccount -Environment $environment -TenantId $tenant_id)
+$loginAcct = $azLogin.Account.Id
+Write-Host "Checking context...";
+$context = Get-AzContext
+if($context -ne $null){
+  if(!(($context.Subscription.TenantId -match $tenant_Id) -and ($context.Subscription.Id -match $subscription_Id))){
+  do{
+    Remove-AzAccount -ErrorAction SilentlyContinue | Out-Null
+    $context = Get-AzContext
+    }
+  until($context -ne $null)
+  Connect-AzAccount -Environment $environment -TenantId $tenant_id
+  }
+}
+else{
+  Connect-AzAccount -Environment $environment -TenantId $tenant_id
+  }
+ 
+$networkWatcher = Get-AzNetworkWatcher -Name $networkWatcherName -ResourceGroupName $resourceGroupName
+$storageAccount = Get-AzStorageAccount -ResourceGroupName $resourceGroupName -Name $storageAccountName
+$workSpace = (Get-AzOperationalInsightsWorkspace -Name $workSpaceName -ResourceGroupName $cs_rg)
+
+Foreach ($nsg in $nsgArray) {
+    $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name $nsg
+    $nsg.id
+    Set-AzNetworkWatcherConfigFlowLog `
+    -NetworkWatcher $networkWatcher `
+    -TargetResourceId $nsg.Id `
+    -EnableFlowLog $true `
+    -StorageAccountId $storageAccount.Id `
+    -WorkspaceResourceId $($workSpace.ResourceId) `
+    -WorkspaceLocation $($workSpace.Location) `
+    -WorkspaceGUID $($workSpace.customerId)
+
+    Write-Output "NSG Flow Logs have been enabled on NetworkSecurityGroup $($nsg.Name)"
+    Write-Host "================================================================================="
+    Write-Host ""
+    }
+
+#Configure Version 2 Flow Logs, and configure Traffic Analytics
+Foreach ($nsg in $nsgArray) {
+  $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name $nsg
+  Set-AzNetworkWatcherConfigFlowLog -NetworkWatcher $networkWatcher -TargetResourceId $nsg.Id -StorageAccountId $storageAccount.Id -EnableFlowLog $true -FormatType Json -FormatVersion 2
+}
+
+<#Configure Version 2 FLow Logs with Traffic Analytics Configured
+$workspace = Get-AzOperationalInsightsWorkspace -Name $workSpaceName -ResourceGroup $resourceGroupName
+
+Foreach ($nsg in $nsgArray) {
+  $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name $nsg
+  Set-AzNetworkWatcherConfigFlowLog -NetworkWatcher $networkWatcher -TargetResourceId $nsg.Id -StorageAccountId $storageAccount.Id -EnableFlowLog $true -FormatType Json -FormatVersion 2 -EnableTrafficAnalytics -WorkspaceResourceId $workspace.resourceId -WorkspaceGUID $workSpace.customerId.Guid -WorkspaceLocation $workSpace.Location
+}#>
+
+#Query Flow Log Status
+#Get-AzNetworkWatcherFlowLogStatus -NetworkWatcher $networkWatcher -TargetResourceId $nsg.Id
+
+<#
+[-EnableRetention <Boolean>]
+[-RetentionInDays <Int32>]
+#>
+
+<#
+#Disable Traffic Analaytics by removing -EnableTrafficAnalytics property
+Set-AzNetworkWatcherConfigFlowLog -NetworkWatcher $NW -TargetResourceId $nsg.Id -StorageAccountId $storageAccount.Id -EnableFlowLog $true -FormatType Json -FormatVersion 2 -WorkspaceResourceId $workspaceResourceId -WorkspaceGUID $workspaceGUID -WorkspaceLocation $workspaceLocation
+
+#Disable Flow Logging
+Set-AzNetworkWatcherConfigFlowLog -NetworkWatcher $NW -TargetResourceId $nsg.Id -StorageAccountId $storageAccount.Id -EnableFlowLog $false
+
+# Download a Flow Log:
+https://{storageAccountName}.blob.core.windows.net/insights-logs-networksecuritygroupflowevent/resourceId=/SUBSCRIPTIONS/{subscriptionID}/RESOURCEGROUPS/{resourceGroupName}/PROVIDERS/MICROSOFT.NETWORK/NETWORKSECURITYGROUPS/{nsgName}/y={year}/m={month}/d={day}/h={hour}/m=00/macAddress={macAddress}/PT1H.json
+#>

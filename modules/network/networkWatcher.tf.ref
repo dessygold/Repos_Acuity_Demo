@@ -1,0 +1,5 @@
+resource "azurerm_network_watcher" "nw-1" {
+  name                = "${var.project_ident}-${var.env_ident}-network-watcher-${var.region_suffix}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+}

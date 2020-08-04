@@ -1,0 +1,113 @@
+
+# NSG1 "Admin NSG" Diagnostic Settings
+resource "azurerm_monitor_diagnostic_setting" "nsg1" {
+  name                       = "${var.project_ident}-${var.env_ident}-${var.nsg1_name}-${var.region_suffix}-diag-settings"
+  target_resource_id         = "${azurerm_network_security_group.nsg1.id}"
+  #log_analytics_workspace_id = "${data.azurerm_log_analytics_workspace.log-analytics-ws-1.id}"
+  log_analytics_workspace_id = "${data.terraform_remote_state.la.laws_id}"
+  
+  #storage_account_id        = "${data.azurerm_storage_account.sa1.id}"
+
+  log {
+    category = "NetworkSecurityGroupEvent"
+    enabled  = true
+
+  retention_policy {
+      enabled = false
+    }
+  }
+  
+  log {
+    category = "NetworkSecurityGroupRuleCounter"
+    enabled  = true
+
+    retention_policy {
+      enabled = false
+    }
+  }
+}
+
+# NSG2 "AppGW NSG" Diagnostic Settings
+resource "azurerm_monitor_diagnostic_setting" "nsg2" {
+  name                       = "${var.project_ident}-${var.env_ident}-${var.nsg2_name}-${var.region_suffix}-diag-settings"
+  target_resource_id         = "${azurerm_network_security_group.nsg2.id}"
+  #log_analytics_workspace_id = "${data.azurerm_log_analytics_workspace.log-analytics-ws-1.id}"
+  log_analytics_workspace_id = "${data.terraform_remote_state.la.laws_id}"
+
+  #storage_account_id        = "${data.azurerm_storage_account.sa1.id}"
+
+  log {
+    category = "NetworkSecurityGroupEvent"
+    enabled  = true
+
+  retention_policy {
+      enabled = false
+    }
+  }
+  
+  log {
+    category = "NetworkSecurityGroupRuleCounter"
+    enabled  = true
+
+    retention_policy {
+      enabled = false
+    }
+  }
+}
+
+# NSG2 "AppGW NSG" Diagnostic Settings
+resource "azurerm_monitor_diagnostic_setting" "nsg4" {
+  name                       = "${var.project_ident}-${var.env_ident}-${var.nsg4_name}-${var.region_suffix}-diag-settings"
+  target_resource_id         = "${azurerm_network_security_group.nsg4.id}"
+  #log_analytics_workspace_id = "${data.azurerm_log_analytics_workspace.log-analytics-ws-1.id}"
+  log_analytics_workspace_id = "${data.terraform_remote_state.la.laws_id}"
+  #storage_account_id        = "${data.azurerm_storage_account.sa1.id}"
+
+  log {
+    category = "NetworkSecurityGroupEvent"
+    enabled  = true
+
+  retention_policy {
+      enabled = false
+    }
+  }
+  
+  log {
+    category = "NetworkSecurityGroupRuleCounter"
+    enabled  = true
+
+    retention_policy {
+      enabled = false
+    }
+  }
+}
+
+# NSG2 "AppGW NSG" Diagnostic Settings
+resource "azurerm_monitor_diagnostic_setting" "nsg5" {
+  name                       = "${var.project_ident}-${var.env_ident}-${var.nsg5_name}-${var.region_suffix}-diag-settings"
+  target_resource_id         = "${azurerm_network_security_group.nsg5.id}"
+  #log_analytics_workspace_id = "${data.azurerm_log_analytics_workspace.log-analytics-ws-1.id}"
+  log_analytics_workspace_id = "${data.terraform_remote_state.la.laws_id}"
+  #storage_account_id        = "${data.azurerm_storage_account.sa1.id}"
+
+  log {
+    category = "NetworkSecurityGroupEvent"
+    enabled  = true
+
+  retention_policy {
+      enabled = false
+    }
+  }
+  
+  log {
+    category = "NetworkSecurityGroupRuleCounter"
+    enabled  = true
+
+    retention_policy {
+      enabled = false
+    }
+  }
+}
+
+
+

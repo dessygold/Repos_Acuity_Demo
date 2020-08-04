@@ -1,0 +1,8 @@
+subscription-$subscriptionPrefix:
+  trigger:
+    include: 'subscription-$subscriptionPrefix:/.gitlab-ci.yml'
+  only:
+    changes: 
+      - css-customers/subscription-$subscriptionPrefix:/**/*
+  variables:  
+    SUBSCRIPTIONPREFIX: $subscriptionPrefix

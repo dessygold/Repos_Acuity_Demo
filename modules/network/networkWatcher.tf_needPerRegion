@@ -1,0 +1,41 @@
+#Enable Network Watcher
+resource "azurerm_network_watcher" "network_watcher" {
+  name                 = "${var.project_ident}-${var.env_ident}-network-watcher-${var.region_suffix}"
+  location             = var.location
+  resource_group_name  = var.resource_group_name
+}
+
+## Azure Policy to enforce Network Watcher VM Extension install, and network packet capture
+
+/*## Configurations for VM to install Network Watcher extension, and capture packets
+resource "azurerm_virtual_machine_extension" "example" {
+  name                       = "network-watcher"
+  location                   = var.location
+  resource_group_name        = var.resource_group_name
+  virtual_machine_name       = azurerm_virtual_machine.example.name
+  publisher                  = "Microsoft.Azure.NetworkWatcher"
+  type                       = "NetworkWatcherAgentLinux"
+  type_handler_version       = "1.4"
+  auto_upgrade_minor_version = true
+}
+
+resource "azurerm_storage_account" "example" {
+  name                     = "pctestsa"
+  location                 = var.location
+  resource_group_name      = var.resource_group_name
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+resource "azurerm_network_packet_capture" "example" {
+  name                 = "pctestcapture"
+  network_watcher_name = azurerm_network_watcher.example.name
+  resource_group_name  = var.resource_group_name
+  target_resource_id   = azurerm_virtual_machine.example.id
+
+  storage_location {
+    storage_account_id = azurerm_storage_account.example.id
+  }
+
+  depends_on = [azurerm_virtual_machine_extension.example]
+} */

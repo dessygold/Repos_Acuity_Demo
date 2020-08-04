@@ -1,0 +1,318 @@
+
+stages:
+  - .pre
+  - pipeline_confirmation
+  - validate
+  - plan
+  - deploy
+  - .post
+
+before_script: 
+  - |   
+    ## Ignore Powershell outputs / warnings from objects that exist, or are not found
+    $ErrorActionPreference = 'SilentlyContinue'
+
+  - |
+    if ($CI_COMMIT_BRANCH -eq "master" -or $CI_COMMIT_BRANCH -eq "master_tst") {
+      . .\deploymentVars.ps1
+      write-host "This Deployment has been triggered from the '$CI_COMMIT_BRANCH branch', and inturn is using 'Prd' variables via 'deploymentVars.ps1'" -ForegroundColor Green
+    }
+    else {
+      . .\testDeploymentVars.ps1 
+      write-host "This Deployment has been triggered from the '$CI_COMMIT_BRANCH branch', and inturn is using 'Dev' variables via 'testDeploymentVars.ps1'" -ForegroundColor Green
+    }
+    
+    ## Defining static variables used in deployment, using Powershell
+    $tf_state_rg = "$projectPrefix-$envIdentifier-core-rg-$regionSuffix"
+    $tf_state_sa_name = $sa_prefix + $envIdentifier + "tfstate" + $regionSuffix
+    $tf_state_sa_container = "terraform-state-$projectPrefix-$envIdentifier"
+    write-host 'Variables used through out this deployment, for concatenation:' -ForegroundColor Green
+    write-host "tf_state_rg = '$tf_state_rg'" -ForegroundColor Green
+    #echo $tf_state_rg 
+    write-host "tf_state_sa_name = '$tf_state_sa_name'" -ForegroundColor Green
+    #echo $tf_state_sa_name 
+    write-host "tf_state_sa_container = '$tf_state_sa_container'" -ForegroundColor Green
+    #echo $tf_state_sa_container 
+
+    # GitlabCI Env Variables have been created, and masked, in the Gitlab CICD GUI, for the below secrets used with TF commands
+    # $env:tf_sp_appid
+    # $env:terraform_sp_secret
+    # $env:tf_state_key
+
+  - |
+    ## Run script to create SSH Keys used for Gitlab Project Deploy Keys
+    # cd "$CI_PROJECT_DIR\deployment-template\_envPrep"
+    # .\createSSH.ps1 | Out-Null
+
+error_prevention:
+  stage: pipeline_confirmation
+  tags: 
+    - shell_test
+  when: manual
+  script:
+  - |
+    # This job runs in the event that no jobs are triggered by Only:Changes location. This job is shown as a indication that the pipeline ran, but no real jobs were triggered.
+    exit 0
+
+tf_init_network:
+  stage: validate
+  only:
+    changes: 
+    - network/*
+  environment:
+    name: $CI_COMMIT_BRANCH
+  tags: 
+    - shell_test
+  script:
+    - |
+      # Enter 'network' Directory:
+      cd "$CI_PROJECT_DIR/network"
+      write-host "Entering Directory '$CI_PROJECT_DIR/network'" -ForegroundColor Green
+    - |
+      ## Terraform init
+      terraform init -upgrade `
+      -backend-config="access_key=$env:tf_state_key" `
+      -backend-config="environment=public" `
+      -backend-config="resource_group_name=$tf_state_rg" `
+      -backend-config="storage_account_name=$tf_state_sa_name" `
+      -backend-config="container_name=$tf_state_sa_container" `
+      -backend-config="key=$projectPrefix-$envIdentifier-networkmt-groups-$regionSuffix.terraform.tfstate"
+    - |
+      ## Terraform Validate
+      terraform validate
+  artifacts:
+    paths:
+      - network/.terraform
+
+tf_plan_network:
+  stage: plan
+  only:
+    changes: 
+    - network/*
+  environment:
+    name: $CI_COMMIT_BRANCH
+  tags: 
+    - shell_test
+  dependencies:
+    - tf_init_network
+  script:
+    - |
+      # Enter 'network' Directory:
+      cd "$CI_PROJECT_DIR/network"
+      write-host "Entering Directory '$CI_PROJECT_DIR/network'" -ForegroundColor Green
+    - |
+      ## Terraform plan
+      terraform plan -out=tfplan `
+      -var "tenant_id=$tenant_Id" `
+      -var "subscription_Id=$subscription_Id" `
+      -var "tf_sp_appid=$env:tf_sp_appid" `
+      -var "tf_sp_secret=$env:terraform_sp_secret" `
+      -var "tfstate_access_key=$env:tf_state_key" `
+      -var "project_ident=$projectPrefix" `
+      -var "region_suffix=$regionSuffix" `
+      -var "env_ident=$envIdentifier"
+    - |
+      terraform show -json tfplan | jq ".resource_changes | map ({(.type|tostring) : .}) | add" > tfplan.json
+  artifacts:
+    paths:
+      - network/tfplan
+    reports:
+      terraform: network/tfplan.json
+        #- network/tfplan.json
+
+  #     ## Terraform plan
+  #     terraform plan -out=tfplan `
+  #     -var "tenant_id=$tenant_Id" `
+  #     -var "subscription_Id=$subscription_Id" `
+  #     -var "tf_sp_appid=$env:tf_sp_appid" `
+  #     -var "tf_sp_secret=$env:terraform_sp_secret" `
+  #     -var "tfstate_access_key=$env:tf_state_key" `
+  #     -var "project_ident=$projectPrefix" `
+  #     -var "region_suffix=$regionSuffix" `
+  #     -var "env_ident=$envIdentifier"
+  # artifacts:
+  #   paths:
+  #     - network/tfplan
+
+.tf_apply_network:
+  stage: deploy
+  only:
+    changes: 
+    - network/*
+  environment:
+     name: $CI_COMMIT_BRANCH
+  tags: 
+    - shell_test
+  dependencies:
+    - tf_init_network
+    - tf_plan_network
+  script:
+    - |
+      # Enter 'network' Directory:
+      cd "$CI_PROJECT_DIR/network"
+      write-host "Entering Directory '$CI_PROJECT_DIR/network'" -ForegroundColor Green
+    - |
+      ## Terraform apply
+      terraform apply tfplan 
+  
+tf_apply_network_all:
+  extends: .tf_apply_network
+  except:
+  - master
+  when: always
+
+tf_apply_network_master:
+  extends: .tf_apply_network
+  only:
+  - master
+  - merge_requests
+  when: manual
+
+cleanup_build_job:
+  stage: .post
+  only:
+    changes: 
+    - network/*
+  environment:
+    name: $CI_COMMIT_BRANCH
+  except:
+    - master 
+  when: manual
+  tags: 
+    - shell_test
+  dependencies:
+    - tf_init_network
+  script:
+    - |
+      # Enter 'network' Directory:
+      cd "$CI_PROJECT_DIR/network"
+      write-host "Entering Directory '$CI_PROJECT_DIR/network'" -ForegroundColor Green
+    - |
+      ## Terraform destroy
+      terraform destroy -auto-approve `
+      -var "tenant_id=$tenant_Id" `
+      -var "subscription_Id=$subscription_Id" `
+      -var "tf_sp_appid=$env:tf_sp_appid" `
+      -var "tf_sp_secret=$env:terraform_sp_secret" `
+      -var "tfstate_access_key=$env:tf_state_key" `
+      -var "project_ident=$projectPrefix" `
+      -var "region_suffix=$regionSuffix" `
+      -var "env_ident=$envIdentifier"  
+
+## Future use ##
+# tf_init_network:
+#   stage: validate
+#   only:
+#     refs:
+#       - merge_requests
+#     changes: 
+#     - network/* 
+#   except:
+#     variables:
+#       - $CI_COMMIT_REF_NAME != "master"
+
+# rules:
+#     - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master" # Execute jobs in merge request context
+#     - if: $CI_COMMIT_BRANCH != 'master'   # Execute jobs when a new commit is pushed to any branch but 'master'
+
+# only:
+#     refs:
+#       - merge_requests
+
+# only:
+#     - merge_requests
+
+# only:
+#     - master
+
+# only:
+#     - develop
+
+# except:
+#     changes:
+#       - "*.md"
+
+# cleanup_build_job:
+#   stage: cleanup_build
+#   script:
+#     - cleanup build when failed
+#   when: on_failure
+
+# script:
+#     - terraform plan -out=$TFPLAN
+#     - terraform show --json $TFPLAN | convert_report > $TFPLAN_JSON
+#   artifacts:
+#     reports:
+#       terraform: $TFPLAN_JSON
+
+##Syntax of environment variable expressions ##
+# Below you can find supported syntax reference.
+
+# Equality matching using a string
+# Examples:
+
+# $VARIABLE == "some value"
+# $VARIABLE != "some value" (introduced in GitLab 11.11)
+# You can use equality operator == or != to compare a variable content to a string. We support both, double quotes and single quotes to define a string value, so both $VARIABLE == "some value" and $VARIABLE == 'some value' are supported. "some value" == $VARIABLE is correct too.
+
+# Checking for an undefined value
+# Examples:
+
+# $VARIABLE == null
+# $VARIABLE != null (introduced in GitLab 11.11)
+# It sometimes happens that you want to check whether a variable is defined or not. To do that, you can compare a variable to null keyword, like $VARIABLE == null. This expression evaluates to true if variable is not defined when == is used, or to false if != is used.
+
+# Checking for an empty variable
+# Examples:
+
+# $VARIABLE == ""
+# $VARIABLE != "" (introduced in GitLab 11.11)
+# If you want to check whether a variable is defined, but is empty, you can simply compare it against an empty string, like $VAR == '' or non-empty string $VARIABLE != "".
+
+# Comparing two variables
+# Examples:
+
+# $VARIABLE_1 == $VARIABLE_2
+# $VARIABLE_1 != $VARIABLE_2 (introduced in GitLab 11.11)
+# It is possible to compare two variables. This is going to compare values of these variables.
+
+# Variable presence check
+# Example: $STAGING
+
+# If you only want to create a job when there is some variable present, which means that it is defined and non-empty, you can simply use variable name as an expression, like $STAGING. If $STAGING variable is defined, and is non empty, expression will evaluate to truth. $STAGING value needs to be a string, with length higher than zero. Variable that contains only whitespace characters is not an empty variable.
+
+# Regex pattern matching
+# Introduced in GitLab 11.0
+
+# Examples:
+
+# =~: True if pattern is matched. Ex: $VARIABLE =~ /^content.*/
+# !~: True if pattern is not matched. Ex: $VARIABLE_1 !~ /^content.*/ (Introduced in GitLab 11.11)
+# Variable pattern matching with regular expressions uses the RE2 regular expression syntax. Expressions evaluate as true if:
+
+# Matches are found when using =~.
+# Matches are not found when using !~.
+# Pattern matching is case-sensitive by default. Use i flag modifier, like /pattern/i to make a pattern case-insensitive.
+
+# Conjunction / Disjunction
+# Introduced in GitLab 12.0
+
+# Examples:
+
+# $VARIABLE1 =~ /^content.*/ && $VARIABLE2 == "something"
+# $VARIABLE1 =~ /^content.*/ && $VARIABLE2 =~ /thing$/ && $VARIABLE3
+# $VARIABLE1 =~ /^content.*/ || $VARIABLE2 =~ /thing$/ && $VARIABLE3
+# It is possible to join multiple conditions using && or ||. Any of the otherwise supported syntax may be used in a conjunctive or disjunctive statement. Precedence of operators follows the Ruby 2.5 standard, so && is evaluated before ||.
+
+# Parentheses
+# Introduced in GitLab 13.3
+
+# It is possible to use parentheses to group conditions. Parentheses have the highest precedence of all operators. Expressions enclosed in parentheses are evaluated first, and the result is used for the rest of the expression.
+
+# Many nested parentheses can be used to create complex conditions, and the inner-most expressions in parentheses are evaluated first. For an expression to be valid an equal number of ( and ) need to be used.
+
+# Examples:
+
+# ($VARIABLE1 =~ /^content.*/ || $VARIABLE2) && ($VARIABLE3 =~ /thing$/ || $VARIABLE4)
+# ($VARIABLE1 =~ /^content.*/ || $VARIABLE2 =~ /thing$/) && $VARIABLE3
+# $CI_COMMIT_BRANCH == "my-branch" || (($VARIABLE1 == "thing" || $VARIABLE2 == "thing") && $VARIABLE3)
