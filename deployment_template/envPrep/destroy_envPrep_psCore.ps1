@@ -1,5 +1,6 @@
 # Imports 'deploymentVars.ps1' from repo root, which contains the global variables used in this script
-. ..\..\deploymentVars.ps1
+#. ..\..\deploymentVars.ps1
+. ..\..\testDeploymentVars.ps1
 
 #Error Messages:
 Set-Item Env:\SuppressAzurePowerShellBreakingChangeWarnings "true"

@@ -1,5 +1,6 @@
 # Imports 'deploymentVars.ps1' from repo root, which contains the global variables used in this script
-. ..\..\deploymentVars.ps1
+#. ..\..\deploymentVars.ps1
+. ..\..\testDeploymentVars.ps1
 
 ## This script tackles the age old rittle, of the chicken before the egg:
 # The Script builds the following resources, within the Azure Subscription, which must exist before Terraform State Files can be captured:
