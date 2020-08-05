@@ -1,29 +1,27 @@
 # Imports 'deploymentVars.ps1' from repo root, which contains the global variables used in this script
-. ..\testdeploymentVars.ps1
+#. ..\..\deploymentVars.ps1
+. ..\..\testDeploymentVars.ps1
 
 # Variables
 $tf_state_rg = "$projectPrefix-$envIdentifier-core-rg-$regionSuffix"
 $tf_state_sa_name = $sa_prefix + $envIdentifier + "tfstate" + $regionSuffix
-$tf_state_sa_container = "terraform-state-$projectPrefix-$envIdentifier"
 
-# Login to Azure Resource Management portal
-az cloud set --name $environment
-az account set --subscription $subscription_Id
-az login
+## Login for Mgmt Subscription KeyVault
+Set-AzContext -Tenant $tenant_Id -SubscriptionId subscription_Id
 Write-Host "Checking context...";
 $context = Get-AzContext
-if($context -ne $null){
-  if(!(($context.Subscription.TenantId -match $tenant_Id) -and ($context.Subscription.Id -match $subscription_Id))){
+if($context -ne $null){ 
+  if(!(($context.Tenant.Id -match $context.Tenant.Id) -and ($context.Subscription.Id -match $context.Subscription.Id))){
   do{
     Clear-AzContext -Force
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
     $context = Get-AzContext
     }
   until($context -ne $null)
   }
 }
 else{
-  Connect-AzAccount -Environment $environment -TenantId $tenant_Id  
+  Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
 }
 
 # Get storage account key for the storage account where Terraform state files will be stored
@@ -36,4 +34,4 @@ else{
   -backend-config="resource_group_name=$tf_state_rg" `
   -backend-config="storage_account_name=$tf_state_sa_name" `
   -backend-config="container_name=$tf_state_sa_container" `
-  -backend-config="key=$projectPrefix-$envIdentifier-sa-desmond-$regionSuffix.terraform.tfstate"
+  -backend-config="key=projectPrefix-envIdentifier-sa-$regionSuffix.terraform.tfstate"

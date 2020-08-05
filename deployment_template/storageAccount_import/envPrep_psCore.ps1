@@ -20,23 +20,21 @@ $tf_state_sa_name = $sa_prefix + $envIdentifier + "tfstate" + $regionSuffix
 $tf_state_sa_containers = "terraform-state-$projectPrefix-$envIdentifier","$projectPrefix-$envIdentifier-deployment-scripts"
 
 # Login to Azure Resource Management portal
-az cloud set --name $environment
-az account set --subscription $subscription_Id
-az login
+Set-AzContext -Tenant $tenant_Id -SubscriptionId $subscription_Id
 Write-Host "Checking context...";
 $context = Get-AzContext
-if($context -ne $null){
-  if(!(($context.Subscription.TenantId -match $tenant_Id) -and ($context.Subscription.Id -match $subscription_Id))){
+if($context -ne $null){ 
+  if(!(($context.Tenant.Id -match $context.Tenant.Id) -and ($context.Subscription.Id -match $context.Subscription.Id))){
   do{
     Clear-AzContext -Force
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
     $context = Get-AzContext
     }
   until($context -ne $null)
   }
 }
 else{
-  Connect-AzAccount -Environment $environment -TenantId $tenant_Id  
+  Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
 }
 
 # Create core Resource Group

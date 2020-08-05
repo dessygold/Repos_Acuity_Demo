@@ -1,31 +1,30 @@
 # Imports 'deploymentVars.ps1' from repo root, which contains the global variables used in this script
-. ..\testdeploymentVars.ps1
+#. ..\..\deploymentVars.ps1
+. ..\..\testDeploymentVars.ps1
 
 # Variables
-$spDisplayName = "$projectPrefix-$envIdentifier-terraform-sp"
-$kvName = "$projectPrefix-$envIdentifier-kv-$regionSuffix"
-$kvSecret = "$projectPrefix-$envIdentifier-terraform-sp-pw"
-$tf_state_rg = "$projectPrefix-$envIdentifier-core-rg-$regionSuffix"
-$tf_state_sa_name = $sa_prefix + $envIdentifier + "tfstate" + $regionSuffix
+$spDisplayName = "$mgmt_projectPrefix-$mgmt_envIdentifier-terraform-sp"
+$kvName = "$mgmt_projectPrefix-$mgmt_envIdentifier-kv-$regionSuffix"
+$kvSecret = "$mgmt_projectPrefix-$mgmt_envIdentifier-terraform-sp-pw"
+$tf_state_rg = "$mgmt_projectPrefix-$mgmt_envIdentifier-core-rg-$regionSuffix"
+$tf_state_sa_name = $mgmt_sa_prefix + $mgmt_envIdentifier + "tfstate" + $regionSuffix
 
-# Login to Azure Resource Management portal
-az cloud set --name $environment
-az account set --subscription $subscription_Id
-az login
+## Login for Mgmt Subscription KeyVault
+Set-AzContext -Tenant $tenant_Id -SubscriptionId $mgmt_subscription_Id
 Write-Host "Checking context...";
 $context = Get-AzContext
-if($context -ne $null){
-  if(!(($context.Subscription.TenantId -match $tenant_Id) -and ($context.Subscription.Id -match $subscription_Id))){
+if($context -ne $null){ 
+  if(!(($context.Tenant.Id -match $context.Tenant.Id) -and ($context.Subscription.Id -match $context.Subscription.Id))){
   do{
     Clear-AzContext -Force
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $mgmt_subscription_Id
     $context = Get-AzContext
     }
   until($context -ne $null)
   }
 }
 else{
-  Connect-AzAccount -Environment $environment -TenantId $tenant_Id  
+  Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
 }
 
 # Retrieve Application ID os Service Principal
@@ -33,6 +32,9 @@ else{
 
 # Retrieve Terraform Service Principal password from Key Vault
   $terraform_sp_secret = (Get-AzKeyVaultSecret -VaultName $kvName -Name $kvSecret).SecretValueText
+
+## Login for Deployment Subscription 
+  Set-AzContext -Tenant $tenant_Id -SubscriptionId $subscription_Id
 
 # Get storage account key for the storage account where Terraform state files will be stored
   $tf_state_key = (Get-AzStorageAccountKey -ResourceGroupName $tf_state_rg -AccountName $tf_state_sa_name | Where-Object{$_.KeyName -eq 'key1'}).Value
@@ -46,5 +48,5 @@ terraform destroy `
     -var "tfstate_access_key=$tf_state_key" `
     -var "project_ident=$projectPrefix" `
     -var "region_suffix=$regionSuffix" `
-    -var "env_ident=$envIdentifier" `
+    -var "env_ident=$mgmt_envIdentifier" `
     -var "sa_prefix=$sa_prefix"

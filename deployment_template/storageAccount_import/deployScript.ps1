@@ -1,4 +1,7 @@
 
+# Creates tfstate Storage Account and Containers in Powershell, prior to Terraform Import
+./envPrep_psCore.ps1
+
 # Initialize the directory
 ./tf_init_psCore.ps1
 
