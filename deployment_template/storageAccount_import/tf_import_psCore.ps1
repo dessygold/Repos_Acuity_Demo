@@ -33,7 +33,7 @@
     }
   }
   else{
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $mgmt_subscription_Id
   }
 
 # Retrieve Application ID os Service Principal

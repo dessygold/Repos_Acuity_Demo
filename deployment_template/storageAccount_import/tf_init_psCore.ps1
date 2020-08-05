@@ -22,7 +22,7 @@ $tf_state_sa_container = "terraform-state-$projectPrefix-$envIdentifier"
     }
   }
   else{
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $mgmt_subscription_Id
   }
 
 # Get storage account key for the storage account where Terraform state files will be stored

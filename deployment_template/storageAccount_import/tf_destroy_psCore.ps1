@@ -3,11 +3,11 @@
 . ..\..\testDeploymentVars.ps1
 
 # Variables
-$spDisplayName = "$mgmt_projectPrefix-$mgmt_envIdentifier-terraform-sp"
-$kvName = "$mgmt_projectPrefix-$mgmt_envIdentifier-kv-$regionSuffix"
-$kvSecret = "$mgmt_projectPrefix-$mgmt_envIdentifier-terraform-sp-pw"
-$tf_state_rg = "$mgmt_projectPrefix-$mgmt_envIdentifier-core-rg-$regionSuffix"
-$tf_state_sa_name = $mgmt_sa_prefix + $mgmt_envIdentifier + "tfstate" + $regionSuffix
+  $spDisplayName = "$mgmt_projectPrefix-$mgmt_envIdentifier-terraform-sp"
+  $kvName = "$mgmt_projectPrefix-$mgmt_envIdentifier-kv-$regionSuffix"
+  $kvSecret = "$mgmt_projectPrefix-$mgmt_envIdentifier-terraform-sp-pw"
+  $tf_state_rg = "$mgmt_projectPrefix-$mgmt_envIdentifier-core-rg-$regionSuffix"
+  $tf_state_sa_name = $mgmt_sa_prefix + $mgmt_envIdentifier + "tfstate" + $regionSuffix
 
 ## Login for Mgmt Subscription KeyVault
   Set-AzContext -Tenant $tenant_Id -SubscriptionId $mgmt_subscription_Id
@@ -24,7 +24,7 @@ $tf_state_sa_name = $mgmt_sa_prefix + $mgmt_envIdentifier + "tfstate" + $regionS
     }
   }
   else{
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $mgmt_subscription_Id
   }
 
 # Retrieve Application ID os Service Principal
@@ -48,5 +48,5 @@ terraform destroy `
     -var "tfstate_access_key=$tf_state_key" `
     -var "project_ident=$projectPrefix" `
     -var "region_suffix=$regionSuffix" `
-    -var "env_ident=$mgmt_envIdentifier" `
+    -var "env_ident=$envIdentifier" `
     -var "sa_prefix=$sa_prefix"

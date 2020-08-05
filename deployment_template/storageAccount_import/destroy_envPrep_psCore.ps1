@@ -8,30 +8,24 @@ $ErrorActionPreference = "silentlyContinue"
 
 # Variables
 $core_rg_Name = "$projectPrefix-$envIdentifier-core-rg-$regionSuffix"
-$tf_state_sa_sku = 'Standard_RAGRS'
 $tf_state_sa_name = $sa_prefix + $envIdentifier + "tfstate" + $regionSuffix
-$tf_state_sa_containers = "terraform-state-$projectPrefix-$envIdentifier","$projectPrefix-$envIdentifier-deployment-scripts"
 
 # Login to Azure Resource Management portal
-#Connect-AzAccount -Environment $environment -Tenant $tenant_Id -Subscription $subscription_Id -Force
-az cloud set --name $environment
-az account set --subscription $subscription_Id
-az login
+Set-AzContext -Tenant $tenant_Id -SubscriptionId $subscription_Id
 Write-Host "Checking context...";
 $context = Get-AzContext
-if($context -ne $null){
-  if(!(($context.TenantId -match $context.Tenant.Id) -and ($context.Subscription.Id -match $subscription_Id))){
+if($context -ne $null){ 
+  if(!(($context.Tenant.Id -match $context.Tenant.Id) -and ($context.Subscription.Id -match $context.Subscription.Id))){
   do{
-    Disable-AzContextAutosave -Scope Process
     Clear-AzContext -Force
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
     $context = Get-AzContext
     }
   until($context -ne $null)
   }
 }
 else{
-  Connect-AzAccount -Environment $environment -TenantId $tenant_Id  
+  Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
 }
 
 # Delete Terraform state storage account
@@ -40,4 +34,4 @@ Write-Output "Storage Account '$($tf_state_sa_name)' has been deleted" -Verbose
 
 # Deletes the Resource Group, and all remaining resources within it
 $rg = Remove-AzResourceGroup -Name $core_rg_Name -Force
-Write-Output "Resource Group '$($rg.ResourceGroupName)' has been deleted" -Verbose
+Write-Output "Resource Group '$($core_rg_Name)' has been deleted" -Verbose
