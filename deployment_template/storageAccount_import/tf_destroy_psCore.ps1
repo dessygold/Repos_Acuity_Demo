@@ -10,22 +10,22 @@ $tf_state_rg = "$mgmt_projectPrefix-$mgmt_envIdentifier-core-rg-$regionSuffix"
 $tf_state_sa_name = $mgmt_sa_prefix + $mgmt_envIdentifier + "tfstate" + $regionSuffix
 
 ## Login for Mgmt Subscription KeyVault
-Set-AzContext -Tenant $tenant_Id -SubscriptionId $mgmt_subscription_Id
-Write-Host "Checking context...";
-$context = Get-AzContext
-if($context -ne $null){ 
-  if(!(($context.Tenant.Id -match $context.Tenant.Id) -and ($context.Subscription.Id -match $context.Subscription.Id))){
-  do{
-    Clear-AzContext -Force
-    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $mgmt_subscription_Id
-    $context = Get-AzContext
+  Set-AzContext -Tenant $tenant_Id -SubscriptionId $mgmt_subscription_Id
+  Write-Host "Checking context...";
+  $context = Get-AzContext
+  if($context -ne $null){ 
+    if(!(($context.Tenant.Id -match $context.Tenant.Id) -and ($context.Subscription.Id -match $context.Subscription.Id))){
+    do{
+      Clear-AzContext -Force
+      Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $mgmt_subscription_Id
+      $context = Get-AzContext
+      }
+    until($context -ne $null)
     }
-  until($context -ne $null)
   }
-}
-else{
-  Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
-}
+  else{
+    Connect-AzAccount -Environment $environment -TenantId $tenant_Id -Subscription $subscription_Id
+  }
 
 # Retrieve Application ID os Service Principal
   $tf_sp_appid = (Get-AzADServicePrincipal -DisplayName $spDisplayName).ApplicationId.Guid

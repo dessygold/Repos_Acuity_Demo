@@ -15,6 +15,8 @@
 # Deployment Variables
   $tf_state_rg = "$projectPrefix-$envIdentifier-core-rg-$regionSuffix"
   $tf_state_sa_name = $sa_prefix + $envIdentifier + "tfstate" + $regionSuffix
+  $tf_state_sa_container1 = "terraform-state-$projectPrefix-$envIdentifier"
+  $tf_state_sa_container2 = "$projectPrefix-$envIdentifier-deployment-scripts"
 
 ## Login for Mgmt Subscription KeyVault
   Set-AzContext -Tenant $tenant_Id -SubscriptionId $mgmt_subscription_Id
@@ -70,7 +72,7 @@ terraform import `
   -var "region_suffix=$regionSuffix" `
   -var "env_ident=$envIdentifier" `
   -var "sa_prefix=$sa_prefix" `
-  module.storageAccount.azurerm_storage_account.storage-account-1 "https://$tf_state_sa_name.blob.core.windows.net/$tf_state_sa_container1"
+  module.storageAccount.azurerm_storage_container.container-1 "https://$tf_state_sa_name.blob.core.windows.net/$tf_state_sa_container1"
   #https://seazuremgmttfstateeus1.blob.core.windows.net/terraform-state-se-azure-mgmt
 
 ## Imports Storage Account Container housing VM deployment-scripts
@@ -84,7 +86,7 @@ terraform import `
   -var "region_suffix=$regionSuffix" `
   -var "env_ident=$envIdentifier" `
   -var "sa_prefix=$sa_prefix" `
-  module.storageAccount.azurerm_storage_account.storage-account-1 "https://$tf_state_sa_name.blob.core.windows.net/$tf_state_sa_container2"
+  module.storageAccount.azurerm_storage_container.container-2 "https://$tf_state_sa_name.blob.core.windows.net/$tf_state_sa_container2"
   #https://seazuremgmttfstateeus1.blob.core.windows.net/terraform-state-se-azure-mgmt
 
 # Once imported, use Terraform Show information to ensure resource block information matches for each resource in the .tf files
