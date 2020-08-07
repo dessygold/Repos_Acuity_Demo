@@ -60,7 +60,6 @@ terraform import `
   -var "env_ident=$envIdentifier" `
   -var "sa_prefix=$sa_prefix" `
   azurerm_resource_group.core-rg /subscriptions/$subscription_Id/resourceGroups/$tf_state_rg
-  #module.storageAccount.azurerm_storage_account.storage-account-1 /subscriptions/$subscription_Id/resourceGroups/$tf_state_rg/providers/Microsoft.Storage/storageAccounts/$tf_state_sa_name
-
+  
 # Once imported, use Terraform Show information to ensure resource block information matches for each resource in the .tf files
 terraform show
