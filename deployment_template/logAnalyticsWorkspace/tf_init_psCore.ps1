@@ -35,4 +35,4 @@ $tf_state_sa_container = "terraform-state-$projectPrefix-$envIdentifier"
   -backend-config="resource_group_name=$tf_state_rg" `
   -backend-config="storage_account_name=$tf_state_sa_name" `
   -backend-config="container_name=$tf_state_sa_container" `
-  -backend-config="key=$projectPrefix-$envIdentifier-law-$regionSuffix.terraform.tfstate"
+  -backend-config="key=$projectPrefix-$envIdentifier-laws-$regionSuffix.terraform.tfstate"

@@ -7,6 +7,5 @@ module "logAnalyticsWorspace" {
   env_ident                = var.env_ident
   region_suffix            = var.region_suffix 
   project_ident            = var.project_ident
-  sku                      = "PerGB2018"
-  retention_in_days        = 30
+  
 }

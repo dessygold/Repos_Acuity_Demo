@@ -11,13 +11,16 @@ variable "region_suffix" {
   description = "Identifier for target environment such as dev, test, prod"
 }
 
-variable "sku" {
+variable "laws_sku" {
   description = "The sku size for the log Analytics workspace Possible values are Free,
    PerNode, Premium, Standard, Standalone, Unlimited, and PerGB2018"
+  default   = "Standard"
 }
+
 variable "retention_in_days" {
   description = "The workspace data retention in days. Possible values are,
   either 7 (Free Tier only) or range between 30 and 730."
+  default     = 180
 }
 
 variable "location" {
