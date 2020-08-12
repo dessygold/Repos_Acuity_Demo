@@ -1,6 +1,6 @@
 
 # Environemnt agnostic variables
-$tenant_Id = 'af7bf8fc-3102-4ecb-a821-54d806584e58' # CPMO Temp Tenant
+$tenant_Id = 'af7bf8fc-3102-4ecb-a821-54d806584e58' # Gold  Tenant
 $environment = "AzureCloud" # Get-AzureRmEnvironment | Select-Object Name
 
 # Mgmt variables used to access Service Principle and Keyvault Secret

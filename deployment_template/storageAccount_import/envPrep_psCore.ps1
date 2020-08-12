@@ -55,7 +55,7 @@ else {
   $tfsa = New-AzStorageAccount -ResourceGroupName $core_rg_Name `
     -Name $tf_state_sa_name `
     -Location $azRegion `
-    -SkuName $tf_state_sa_sku
+    -SkuName $tf_state_sa_sku `
     Write-Output "Storage Account '$($tfsa.StorageAccountName)' has been created"
 }
 
